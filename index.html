@@ -170,6 +170,16 @@
     }
 
     .clear-done:hover { border-color: #ef4444; color: #ef4444; background: #fff5f5; }
+
+    .status {
+      font-size: 0.78rem;
+      color: #94a3b8;
+      text-align: right;
+      margin-bottom: 8px;
+      min-height: 1.2em;
+    }
+
+    .status.error { color: #ef4444; }
   </style>
 </head>
 <body>
@@ -187,6 +197,7 @@
     <button              data-filter="done"     onclick="setFilter('done')">완료</button>
   </div>
 
+  <div class="status" id="status"></div>
   <div class="summary" id="summary"></div>
 
   <ul id="list"></ul>
@@ -195,58 +206,118 @@
   <button class="clear-done" onclick="clearDone()">완료 항목 모두 삭제</button>
 </div>
 
-<script>
-  let items = JSON.parse(localStorage.getItem('shopping') || '[]');
+<script type="module">
+  import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+  const SUPABASE_URL = 'https://aplkgpjzgyhqjkkyonmz.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFwbGtncGp6Z3locWpra3lvbm16Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY4MjY2MzAsImV4cCI6MjA5MjQwMjYzMH0.s7aB_9M_oFnnthXMm4AYo__e22Zph3Kk2KZUhiuOEB8';
+
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  let items = [];
   let filter = 'all';
 
-  const input   = document.getElementById('itemInput');
-  const listEl  = document.getElementById('list');
-  const emptyEl = document.getElementById('empty');
+  const input     = document.getElementById('itemInput');
+  const listEl    = document.getElementById('list');
+  const emptyEl   = document.getElementById('empty');
   const summaryEl = document.getElementById('summary');
+  const statusEl  = document.getElementById('status');
 
   input.addEventListener('keydown', e => { if (e.key === 'Enter') addItem(); });
 
-  function save() { localStorage.setItem('shopping', JSON.stringify(items)); }
+  function setStatus(msg, isError = false) {
+    statusEl.textContent = msg;
+    statusEl.className = 'status' + (isError ? ' error' : '');
+  }
 
-  function addItem() {
+  async function loadItems() {
+    setStatus('불러오는 중...');
+    const { data, error } = await supabase
+      .from('shopping_items')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) { setStatus('불러오기 실패: ' + error.message, true); return; }
+    items = data;
+    setStatus('');
+    render();
+  }
+
+  window.addItem = async function() {
     const name = input.value.trim();
     if (!name) return;
-    items.unshift({ id: Date.now(), name, done: false });
     input.value = '';
-    save();
-    render();
-  }
+    setStatus('저장 중...');
 
-  function toggleItem(id) {
+    const { data, error } = await supabase
+      .from('shopping_items')
+      .insert({ name, done: false })
+      .select()
+      .single();
+
+    if (error) { setStatus('저장 실패: ' + error.message, true); return; }
+    items.unshift(data);
+    setStatus('');
+    render();
+  };
+
+  window.toggleItem = async function(id) {
     const item = items.find(i => i.id === id);
-    if (item) item.done = !item.done;
-    save();
-    render();
-  }
+    if (!item) return;
+    const newDone = !item.done;
+    setStatus('업데이트 중...');
 
-  function deleteItem(id) {
+    const { error } = await supabase
+      .from('shopping_items')
+      .update({ done: newDone })
+      .eq('id', id);
+
+    if (error) { setStatus('업데이트 실패: ' + error.message, true); return; }
+    item.done = newDone;
+    setStatus('');
+    render();
+  };
+
+  window.deleteItem = async function(id) {
+    setStatus('삭제 중...');
+    const { error } = await supabase
+      .from('shopping_items')
+      .delete()
+      .eq('id', id);
+
+    if (error) { setStatus('삭제 실패: ' + error.message, true); return; }
     items = items.filter(i => i.id !== id);
-    save();
+    setStatus('');
     render();
-  }
+  };
 
-  function clearDone() {
+  window.clearDone = async function() {
+    const doneIds = items.filter(i => i.done).map(i => i.id);
+    if (!doneIds.length) return;
+    setStatus('삭제 중...');
+
+    const { error } = await supabase
+      .from('shopping_items')
+      .delete()
+      .in('id', doneIds);
+
+    if (error) { setStatus('삭제 실패: ' + error.message, true); return; }
     items = items.filter(i => !i.done);
-    save();
+    setStatus('');
     render();
-  }
+  };
 
-  function setFilter(f) {
+  window.setFilter = function(f) {
     filter = f;
     document.querySelectorAll('.filter-row button').forEach(b => {
       b.classList.toggle('active', b.dataset.filter === f);
     });
     render();
-  }
+  };
 
   function render() {
-    const total  = items.length;
-    const doneN  = items.filter(i => i.done).length;
+    const total = items.length;
+    const doneN = items.filter(i => i.done).length;
     summaryEl.textContent = `전체 ${total}개 · 완료 ${doneN}개`;
 
     const visible = items.filter(i =>
@@ -276,7 +347,7 @@
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  render();
+  loadItems();
 </script>
 </body>
 </html>
