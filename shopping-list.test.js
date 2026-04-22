@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const path = require('path');
 
-const FILE_URL = 'file://' + path.resolve(__dirname, 'shopping-list.html').replace(/\\/g, '/');
+const FILE_URL = 'file://' + path.resolve(__dirname, 'index.html').replace(/\\/g, '/');
 
 test.beforeEach(async ({ page }) => {
   await page.goto(FILE_URL);
